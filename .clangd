@@ -1,0 +1,6 @@
+CompileFlags:
+    Add: 
+        - "-I./include"
+        - "-I./kernel/src/include"
+        - "-ffreestanding"
+        - "-nostdlib"

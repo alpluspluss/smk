@@ -1,0 +1,53 @@
+# OS Dev Environment Specific
+*.o                     # Object files
+*.a                     # Static libraries
+*.so                    # Shared libraries
+*.out                   # Executables
+*.elf                   # Executable and Linkable Format files
+*.img                   # Disk image files
+*.iso                   # ISO image files
+*.bin                   # Binary files
+*.map                   # Memory map files
+*.dmp                   # Dump files (if used for debugging)
+*.sym                   # Debug symbols
+
+# Compiler and Build Specific
+*.gcc                   # GCC compiler generated files
+*.dep                   # Dependency files
+*.log                   # Build log files
+*.err                   # Error logs
+
+# OSDev Toolchain Files
+*.gdb                   # GDB files
+*.pdb                   # Program database files (Windows)
+*.obj                   # Object files (Windows)
+.vscode/                # Visual Studio Code settings
+.idea/                  # IntelliJ IDEA files
+*.sublime-workspace     # Sublime Text workspace files
+*.sublime-project       # Sublime Text project files
+
+# Temporary files
+*~                      # Temporary files (from text editors like Vim, Emacs)
+*.swp                   # Swap files from Vim
+*.bak                   # Backup files from various editors
+*.tmp                   # Temporary files
+
+# Generated files
+/target/                # Build output directory
+/build/                 # Build directory
+/.cargo/                # Rust's Cargo directory (if using Rust)
+
+# IDE specific files
+*.iml                   # IntelliJ IDEA project files
+*.ipr                   # IntelliJ IDEA project files
+*.iws                   # IntelliJ IDEA workspace files
+
+# Operating System files
+Thumbs.db               # Windows image cache
+Desktop.ini             # Windows desktop configuration
+.DS_Store               # macOS system file
+
+# Directory
+
+build/
+bin/
