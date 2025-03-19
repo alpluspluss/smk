@@ -1,5 +1,10 @@
 # smk: A small bootloader
 
+> [!NOTE]
+> The "advanced" version of smk is being developed in 
+> [advanced branch](https://github.com/alpluspluss/smk/tree/advanced). It will have advanced features such as KASLR for security 
+> and VESA for graphics and user interface.
+
 smk is a minimal x86 BIOS bootloader & templated kernel that implements multi-stage boot process with "just enough" 
 features to run an ELF-compiled kernel. smk is developed as a free time killer for educational purpose during 
 the spring break of my high school.
