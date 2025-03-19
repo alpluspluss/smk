@@ -60,6 +60,7 @@ Before building smk, there are several required components:
 - GCC cross compiler
 - NASM
 - QEMU
+- CompileDB
 
 ### Commands
 
