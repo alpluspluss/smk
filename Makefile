@@ -68,7 +68,7 @@ clean:
 	rm -f $(BUILD_DIR)/compile_commands.json
 
 run: $(OS_IMG)
-	$(QEMU) -drive file=$(OS_IMG),format=raw -serial stdio # -S -gdb tcp::1234
+	$(QEMU) -vga std -m 128M -drive file=$(OS_IMG),format=raw -serial stdio # -S -gdb tcp::1234
 
 rerun: clean all run
 

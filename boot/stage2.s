@@ -1,11 +1,17 @@
 [BITS 16]
 [ORG 0x7E00]
 
-KERNEL_HIGH      equ 0xFFFFFFFF80000000 ; kernel virtual address in higher half
-KERNEL_SEG       equ 0x1000 ; segment where kernel is loaded in real mode
-KERNEL_OFF       equ 0x0000 ; offset of the kernel where it is loaded
-KERNEL_LOW       equ (KERNEL_SEG << 4) + KERNEL_OFF ; physical address computation
-VGA_MEM          equ 0xB8000 ; VGA text mode buffer address
+KERNEL_HIGH equ 0xFFFFFFFF80000000 ; kernel virtual address in higher half
+KERNEL_SEG equ 0x1000 ; segment where kernel is loaded in real mode
+KERNEL_OFF equ 0x0000 ; offset of the kernel where it is loaded
+KERNEL_LOW equ (KERNEL_SEG << 4) + KERNEL_OFF ; physical address computation
+VGA_MEM equ 0xB8000 ; VGA text mode buffer address
+MEMMAP_BUFFER equ 0x8000 ; the address to store memory map
+MEMMAP_ENTRIES equ 0x7E00 ; store number of entries at this address
+
+; BootInfo structure definitions
+BOOT_INFO equ 0x9000 ; base address for bootinfo structure
+MEMMAP_INFO_OFFSET equ 0 ; memory map info offset in bootinfo
 
 start:
     ; stack segment init
@@ -18,11 +24,115 @@ start:
     mov si, msg_stage2 ; show we reached stage2 of the boot
     call print_rm
 
-    call enable_a20 ; enable A20 line for >1MB memory access; 
-                        ; it's not required but we may need it if the 
-                        ; kernel is going to be bigger than 1MB obv
+    ; init BootInfo structure (clear it)
+    mov di, BOOT_INFO
+    mov cx, 512 ; clear 1KB / 2 per word
+    xor ax, ax
+    rep stosw ; clear the memory by repeating store word and set zero
+
+    ; IMPORTANT note: this is ORDER-SENSITIVE
+    call enable_a20 ; enable A20 line for >1MB memory access
+    call detect_mm ; detect memory map
     call load_kernel ; load the kernel from the disk using DL (drive num)
     call enter_pm ; enter protected mode (32-bit)
+
+; detect memory map using E820 BIOS call
+detect_mm:
+    pusha ; save all 16-bit registers
+
+    ; setup the buffer
+    mov di, BOOT_INFO + MEMMAP_INFO_OFFSET + 2 ; skip the first 2 bytes (entry count)
+    xor bx, bx ; clear bx to start with the first entry
+    xor bp, bp ; bp counts the entries
+
+    ; get the response from E820 subroutine call
+    mov edx, 0x534D4150 ; "SMAP" signature for E820
+    mov ax, 0xE820 ; E820 BIOS service
+    mov [es:di + 20], word 1 ; use word-sized ext flags
+    mov cx, 24 ; ask for 24 bytes; standard E820 entry size
+    int 0x15 ; call the BIOS
+    jc .error ; carry flag set = function not supported
+    
+    ; validation
+    cmp eax, 0x534D4150 ; EAX should have "SMAP" signature
+    jne .error ; if not, error occurred
+    
+    test bx, bx ; is BX zero? (no more entries)
+    jz .done ; if so then memory detection done
+    
+    jmp .start_loop ; skip first entry check and continue
+
+.next_entry:
+    mov ax, 0xE820 ; E820 function
+    mov [es:di + 20], word 1 ; use word instead of dword
+    mov cx, 24 ; 24 bytes again
+    int 0x15 ; call BIOS
+    jc .done ; carry = end of list
+    
+.start_loop:
+    jcxz .skip_entry ; skip 0-length entries
+    
+    ; entry is valid -> move to next position
+    add di, 24 ; move buffer pointer
+    inc bp ; count += 1
+    
+.skip_entry:
+    test bx, bx ; BX = 0 means list is complete
+    jnz .next_entry ; if not, get next entry
+    
+.done:
+    ; store count at the beginning of the memory map info
+    mov [BOOT_INFO + MEMMAP_INFO_OFFSET], bp
+    
+    mov si, msg_mem_ok
+    call print_rm
+
+    mov ax, bp
+    call print_num
+    mov si, newline
+    call print_rm
+
+    popa  ; restore all 16-bit registers
+    ret
+
+.error:
+    mov si, msg_mem_err
+    call print_rm
+
+    popa
+    ret
+
+; print a number in AX
+print_num:
+    push ax
+    push bx
+    push cx
+    push dx
+    
+    mov bx, 10          ; divisor
+    xor cx, cx          ; count digits
+    
+.div_loop:
+    xor dx, dx          ; clear high word of dividend
+    div bx              ; divide by 10
+    push dx             ; push remainder (digit)
+    inc cx              ; increment digit count
+    test ax, ax         ; check if quotient is zero
+    jnz .div_loop       ; continue if not
+    
+.print_loop:
+    pop dx              ; get digit
+    add dl, '0'         ; convert to ASCII
+    mov ah, 0x0E        ; BIOS teletype function
+    mov al, dl          ; character to print
+    int 0x10            ; call BIOS
+    loop .print_loop    ; loop until all digits are printed
+    
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
 
 ; real mode print; this is the same thing from stage1.s so i will not be commenting this
 print_rm:
@@ -35,7 +145,6 @@ print_rm:
 .done:
     ret
 
-; 
 load_kernel:
     mov ax, 0x0240 ; read 64 sectors (32KB) at a time
     xor ch, ch ; cylinder 0
@@ -115,7 +224,7 @@ print_pm:
     pop eax
     ret
 
-; 4 level paging for 64-bit mode
+; 4 level paging
 setup_paging:
     ; clear the page tables 
     mov edi, 0x1000 ; the tables will start at 0x1000
@@ -124,11 +233,17 @@ setup_paging:
     rep stosd ; repeat store double world to fill with zeros
 
     ; identity mapping for the first 2MB
+    ; 0x00002003 means points to the next page table
+    ; READABLE (bit 0) | WRITABLE (bit 1) | PRESENT in memory (bit 2)
+    ; also goes similarly for other mappings
     mov dword [0x1000], 0x00002003 ; [PDPT] | READ | WRITE | PRESENT 
     mov dword [0x2000], 0x00003003 ; [PDT] | READ | WRITE | PRESENT 
     mov dword [0x3000], 0x00000083 ; 2MB page; | READ | WRITE | PRESENT 
 
     ; our paging structure for high half virtual kernel mapping
+    ; KERNEL_HIGH >> 39 to get the top-level page table index
+    ; & 0x1FF to ensure that only 9 bits OR 512 entries are used
+    ; mul by 8 to get the correct offset
     mov dword [0x1000 + 8 * ((KERNEL_HIGH >> 39) & 0x1FF)], 0x00004003
     mov dword [0x4000 + 8 * ((KERNEL_HIGH >> 30) & 0x1FF)], 0x00005003
     mov dword [0x5000 + 8 * ((KERNEL_HIGH >> 21) & 0x1FF)], 0x00000083
@@ -138,13 +253,15 @@ setup_paging:
     mov cr3, edi
     ret
 
-
 enter_lm:
     mov ecx, 0xC0000080 ; EFER MSR
     rdmsr ; read current value 
     or eax, 1 << 8 ; set LME (similar to the protected mode boot)
     wrmsr ; write back
 
+    ; Enable Physical Address Extension (PAE) and Page Global Enable (PGE)
+    ; PAE allows 36-bit physical addresses and is required for long mode
+    ; PGE allows caching of global page mappings across context switches
     mov eax, 10100000b ; set PAE and PGE bits
     mov cr4, eax ; update our cr4
 
@@ -169,6 +286,11 @@ lm_entry:
     mov rsi, msg_lm
     call print_lm
 
+    ; pass BootInfo pointer to kernel in RDI (first parameter)
+    ; this is required because we need to follow the convention to correctly pass the boot information
+    ; to the kernel
+    mov rdi, KERNEL_HIGH + BOOT_INFO
+
     mov rax, KERNEL_HIGH + KERNEL_LOW ; jump to kernel at its virtual high address
     jmp rax
 
@@ -191,6 +313,9 @@ print_lm:
 
 msg_stage2:    db 'Stage 2 loaded', 13, 10, 0
 msg_disk_err:  db 'Disk error', 13, 10, 0
+msg_mem_err:   db 'Memory map detection failed', 13, 10, 0
+msg_mem_ok:    db 'Memory map detected, entries: ', 0
+newline:       db 13, 10, 0
 msg_lm:        db 'In long mode', 0
 msg_pm:        db 'In protected mode', 0
 

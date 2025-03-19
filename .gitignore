@@ -48,6 +48,6 @@ Desktop.ini             # Windows desktop configuration
 .DS_Store               # macOS system file
 
 # Directory
-
 build/
 bin/
+.cache/
