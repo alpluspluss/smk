@@ -43,7 +43,7 @@ smk does not and will not support advanced features such as:
 - and so on...
 
 simply because it would take too much time to develop and add extra complexity that is contradict with the goal and 
-design principle of this project.
+design principle of this project. However, this is the advanced version hence KASLR and VESA graphics mode are supported.
 
 > [!NOTE]
 > UEFI booting is not supported not because of it being an optional feature but because of the environment I 
