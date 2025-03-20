@@ -11,6 +11,11 @@ MEMMAP_ENTRIES equ 0x7E00 ; store number of entries at this address
 VESA_WIDTH equ 1024
 VESA_HEIGHT equ 768
 VESA_BPP equ 32
+; KASLR config
+VERSION equ 0x53544542 ; "BETA"
+TARGET equ 0x34365F36 ; "_64"
+SIG equ 0x4B4D535C ; "\SMK"
+
 
 ; BootInfo structure definitions
 BOOT_INFO equ 0x9000 ; base address for bootinfo structure
@@ -436,7 +441,21 @@ lm_entry:
     mov gs, ax
     mov ss, ax
 
-    mov rsp, 0x90000 + KERNEL_HIGH ; set stack pointer to high address
+    ; create KASLR offset based on build info
+    mov eax, VERSION
+    xor eax, TARGET  
+    xor eax, SIG
+    rol eax, 12 ; improve distribution
+    and rax, 0x0000FFF0 ; smaller, safer range (64KB) and 16-byte aligned; 
+                            ; the randomized offset should typically larged than this but
+                            ; this is more than enough for showcasing
+    
+    ; store the offset for the kernel to know about it
+    mov qword [BOOT_INFO + 100], rax
+    
+    ; set stack with reasonable offset that we know is mapped
+    mov rsp, KERNEL_HIGH + 0x90000
+    add rsp, rax ; add randomization offset
 
     ; yay we reached the long mode
     mov rsi, msg_lm
