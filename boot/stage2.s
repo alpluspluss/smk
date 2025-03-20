@@ -444,20 +444,19 @@ lm_entry:
     mov ss, ax
 
     ; create KASLR offset based on build info
-    ; Enhanced KASLR implementation
-    rdtsc                   ; Read timestamp counter into EDX:EAX
-    mov ebx, eax            ; Save original TSC low value
-    xor eax, edx            ; Mix with high bits
-    rol eax, 11             ; Rotate bits
-    xor eax, VERSION        ; Mix in constants
-    xor eax, ebx            ; Mix with original TSC again
-    rol eax, 7              ; Rotate more
+    rdtsc                   ; read timestamp counter into EDX:EAX
+    mov ebx, eax            ; save original TSC low value
+    xor eax, edx            ; mix with high bits
+    rol eax, 11             ; rotate bits
+    xor eax, VERSION        ; mix in constants
+    xor eax, ebx            ; mix with original TSC again
+    rol eax, 7              ; rotate more
     xor eax, TARGET
     rol eax, 5
     xor eax, SIG
-    xor eax, [0x046C]       ; Mix with BIOS time tick count
-    rol eax, 13             ; One more rotation
-    and rax, 0x000FFFF0     ; Preserve more bits (20-bit range), keep 16-byte alignment
+    xor eax, [0x046C]       ; mix with BIOS time tick count
+    rol eax, 13             ; one more rotation
+    and rax, 0x000FFFF0     ; preserve more bits (20-bit range), keep 16-byte alignment
     
     ; store the offset for the kernel to know about it
     mov qword [BOOT_INFO + 1538], rax
