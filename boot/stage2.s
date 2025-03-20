@@ -177,7 +177,9 @@ setup_vesa:
     mov ax, 0x4F01 ; get VBE mode info
     mov cx, 0x118 ; mode number (1024x768x32)
     mov di, mode_info_block ; buf to store mode info
-    int 0x10 ; call the routine
+
+    ; NOTE: YOU WOULD WANNA TURN THIS ON FOR GRAPHICS MODE. I TURNED IT OFF BECAUSE I NEED TO LOOK AT DEBUG
+    ; int 0x10 ; call the BIOS vieo routine
     
     cmp ax, 0x004F ; the response should be equal to this value otherwise it will error
     jne .error
@@ -442,16 +444,23 @@ lm_entry:
     mov ss, ax
 
     ; create KASLR offset based on build info
-    mov eax, VERSION
-    xor eax, TARGET  
+    ; Enhanced KASLR implementation
+    rdtsc                   ; Read timestamp counter into EDX:EAX
+    mov ebx, eax            ; Save original TSC low value
+    xor eax, edx            ; Mix with high bits
+    rol eax, 11             ; Rotate bits
+    xor eax, VERSION        ; Mix in constants
+    xor eax, ebx            ; Mix with original TSC again
+    rol eax, 7              ; Rotate more
+    xor eax, TARGET
+    rol eax, 5
     xor eax, SIG
-    rol eax, 12 ; improve distribution
-    and rax, 0x0000FFF0 ; smaller, safer range (64KB) and 16-byte aligned; 
-                            ; the randomized offset should typically larged than this but
-                            ; this is more than enough for showcasing
+    xor eax, [0x046C]       ; Mix with BIOS time tick count
+    rol eax, 13             ; One more rotation
+    and rax, 0x000FFFF0     ; Preserve more bits (20-bit range), keep 16-byte alignment
     
     ; store the offset for the kernel to know about it
-    mov qword [BOOT_INFO + 100], rax
+    mov qword [BOOT_INFO + 1538], rax
     
     ; set stack with reasonable offset that we know is mapped
     mov rsp, KERNEL_HIGH + 0x90000

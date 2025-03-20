@@ -11,7 +11,7 @@
 #define E820_TYPE_ACPI_NVS         4
 #define E820_TYPE_BAD              5
 
-typedef struct Y
+typedef struct
 {
     uint64_t base; /* base addr */
     uint64_t length; /* region length */
@@ -22,7 +22,8 @@ typedef struct Y
 typedef struct X
 {
     uint16_t entry_count;
-    E820Entry entries[];
+    E820Entry entries[64];
+    uint64_t kaslr_offset;
 } __attribute__((packed)) MemmapInfo;
 
 typedef struct

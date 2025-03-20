@@ -210,6 +210,10 @@ void kernel_main(BootInfo* binfo, GraphicsInfo* gpinfo)
     print("\nVerifying graphics info...\n", COLOR);
     fb_verify_info(gpinfo);
 
+    /* get kaslr offset */
+    print("KASLR offset: ", COLOR);
+    print_hex(binfo->memmap.kaslr_offset, COLOR);
+
 end:
     while (1)
         asm volatile("hlt");
