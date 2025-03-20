@@ -86,7 +86,66 @@ void print_dec(uint64_t num, unsigned char color)
     print(&buffer[pos], color);
 }
 
-void kernel_main(BootInfo* binfo)
+void fb_verify_info(GraphicsInfo* gpinfo)
+{
+    if (!gpinfo)
+    {
+        print("Graphics info is NULL\n", COLOR);
+        return;
+    }
+    
+    print("Graphics info at: ", COLOR);
+    print_hex((uint64_t)gpinfo, COLOR);
+    print("\n", COLOR);
+    
+    print("Enabled: ", COLOR);
+    print_dec(gpinfo->enabled, COLOR);
+    print("\n", COLOR);
+    
+    /* only show details if graphics is reported as enabled */
+    if (gpinfo->enabled)
+    {
+        print("Resolution: ", COLOR);
+        print_dec(gpinfo->width, COLOR);
+        print("x", COLOR);
+        print_dec(gpinfo->height, COLOR);
+        print("\n", COLOR);
+        
+        print("Bits per pixel: ", COLOR);
+        print_dec(gpinfo->bpp, COLOR);
+        print("\n", COLOR);
+        
+        print("Framebuffer address: ", COLOR);
+        print_hex(gpinfo->framebuffer, COLOR);
+        print("\n", COLOR);
+        
+        print("Pitch (bytes per line): ", COLOR);
+        print_dec(gpinfo->pitch, COLOR);
+        print("\n", COLOR);
+        
+        print("Color info:\n", COLOR);
+        
+        print("  Red: ", COLOR);
+        print_dec(gpinfo->red_mask, COLOR);
+        print(" bits at position ", COLOR);
+        print_dec(gpinfo->red_position, COLOR);
+        print("\n", COLOR);
+        
+        print("  Green: ", COLOR);
+        print_dec(gpinfo->green_mask, COLOR);
+        print(" bits at position ", COLOR);
+        print_dec(gpinfo->green_position, COLOR);
+        print("\n", COLOR);
+        
+        print("  Blue: ", COLOR);
+        print_dec(gpinfo->blue_mask, COLOR);
+        print(" bits at position ", COLOR);
+        print_dec(gpinfo->blue_position, COLOR);
+        print("\n", COLOR);
+    }
+}
+
+void kernel_main(BootInfo* binfo, GraphicsInfo* gpinfo)
 {
     if (!binfo)
         goto end;
@@ -146,6 +205,14 @@ void kernel_main(BootInfo* binfo)
         print(type_str, type_color);
         print("\n", 0x0F);
     }
+    
+    /* verify graphics info */
+    print("\nVerifying graphics info...\n", COLOR);
+    fb_verify_info(gpinfo);
+
+    /* get kaslr offset */
+    print("KASLR offset: ", COLOR);
+    print_hex(binfo->memmap.kaslr_offset, COLOR);
 
 end:
     while (1)

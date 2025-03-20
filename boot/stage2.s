@@ -8,10 +8,21 @@ KERNEL_LOW equ (KERNEL_SEG << 4) + KERNEL_OFF ; physical address computation
 VGA_MEM equ 0xB8000 ; VGA text mode buffer address
 MEMMAP_BUFFER equ 0x8000 ; the address to store memory map
 MEMMAP_ENTRIES equ 0x7E00 ; store number of entries at this address
+VESA_WIDTH equ 1024
+VESA_HEIGHT equ 768
+VESA_BPP equ 32
+; KASLR config
+VERSION equ 0x53544542 ; "BETA"
+TARGET equ 0x34365F36 ; "_64"
+SIG equ 0x4B4D535C ; "\SMK"
+
 
 ; BootInfo structure definitions
 BOOT_INFO equ 0x9000 ; base address for bootinfo structure
 MEMMAP_INFO_OFFSET equ 0 ; memory map info offset in bootinfo
+
+; GraphicsInfo structure - completely separate from BootInfo
+GRAPHICS_INFO equ 0x9500 ; base address for graphics info structure
 
 start:
     ; stack segment init
@@ -30,9 +41,16 @@ start:
     xor ax, ax
     rep stosw ; clear the memory by repeating store word and set zero
 
+    ; init GraphicsInfo structure (clear it)
+    mov di, GRAPHICS_INFO
+    mov cx, 256 ; clear 512 bytes / 2 per word
+    xor ax, ax
+    rep stosw ; clear the memory
+
     ; IMPORTANT note: this is ORDER-SENSITIVE
     call enable_a20 ; enable A20 line for >1MB memory access
     call detect_mm ; detect memory map
+    call setup_vesa
     call load_kernel ; load the kernel from the disk using DL (drive num)
     call enter_pm ; enter protected mode (32-bit)
 
@@ -121,12 +139,12 @@ print_num:
     jnz .div_loop       ; continue if not
     
 .print_loop:
-    pop dx              ; get digit
-    add dl, '0'         ; convert to ASCII
-    mov ah, 0x0E        ; BIOS teletype function
-    mov al, dl          ; character to print
-    int 0x10            ; call BIOS
-    loop .print_loop    ; loop until all digits are printed
+    pop dx ; get digit
+    add dl, '0' ; convert to ASCII
+    mov ah, 0x0E ; BIOS teletype function
+    mov al, dl ; character to print
+    int 0x10 ; call BIOS
+    loop .print_loop ; loop until all digits are printed
     
     pop dx
     pop cx
@@ -143,6 +161,152 @@ print_rm:
     int 0x10
     jmp print_rm
 .done:
+    ret
+
+; for some reasons, this subroutine completely melts down when using pusha popa to store/load the regs
+setup_vesa:
+    ; save reg
+    push es
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    
+    ; firstly, we get mode info to save framebuffer address and other details
+    mov ax, 0x4F01 ; get VBE mode info
+    mov cx, 0x118 ; mode number (1024x768x32)
+    mov di, mode_info_block ; buf to store mode info
+
+    ; NOTE: YOU WOULD WANNA TURN THIS ON FOR GRAPHICS MODE. I TURNED IT OFF BECAUSE I NEED TO LOOK AT DEBUG
+    ; int 0x10 ; call the BIOS vieo routine
+    
+    cmp ax, 0x004F ; the response should be equal to this value otherwise it will error
+    jne .error
+    
+    ; now change the graphics from VGA to framebuffer VESA
+    ; note that this is a fairly standard mode in your average BIOS
+    ; however, if you are porting this bootloader then you'd have to implement 
+    ; "use the best found" algorithm which can be complex
+    mov ax, 0x4F02
+    mov bx, 0x4118 ; mode 0x118 with LFB bit (0x4000) set
+    int 0x10
+    
+    cmp ax, 0x004F
+    jne .error
+    
+    ; mode set successfully - now save the info to GraphicsInfo structure
+    ; first, mark graphics as enabled
+    mov word [GRAPHICS_INFO], 1
+    
+    ; save resolution and color depth
+    mov ax, [mode_info_block.width]
+    mov [GRAPHICS_INFO + 2], ax    ; width
+    
+    mov ax, [mode_info_block.height]
+    mov [GRAPHICS_INFO + 4], ax    ; height
+    
+    mov al, [mode_info_block.bpp]
+    mov [GRAPHICS_INFO + 6], al    ; bpp
+    
+    ; save fb address (32-bit physical address)
+    mov eax, [mode_info_block.framebuffer]
+    mov [GRAPHICS_INFO + 8], eax   ; fb phys addr
+    
+    ; save bytes per scanline (pitch)
+    mov ax, [mode_info_block.pitch]
+    mov [GRAPHICS_INFO + 12], ax   ; bytes per scanline
+    
+    ; save color mask information for RGB
+    mov al, [mode_info_block.red_mask]
+    mov [GRAPHICS_INFO + 14], al   ; red mask size
+    
+    mov al, [mode_info_block.red_position]
+    mov [GRAPHICS_INFO + 15], al   ; red field position
+    
+    mov al, [mode_info_block.green_mask]
+    mov [GRAPHICS_INFO + 16], al   ; green mask size
+    
+    mov al, [mode_info_block.green_position]
+    mov [GRAPHICS_INFO + 17], al   ; green field position
+    
+    mov al, [mode_info_block.blue_mask]
+    mov [GRAPHICS_INFO + 18], al   ; blue mask size
+    
+    mov al, [mode_info_block.blue_position]
+    mov [GRAPHICS_INFO + 19], al   ; blue field position
+    
+    ; "yay success!!!!!"
+    mov si, msg_vesa_ok
+    call print_rm
+    
+    ; print the fb address in hex
+    mov si, msg_framebuffer
+    call print_rm
+    mov eax, [mode_info_block.framebuffer]
+    call print_hex
+    mov si, newline
+    call print_rm
+    
+    ; restore stack
+    pop di
+    pop si
+    pop dx 
+    pop cx
+    pop bx
+    pop es
+    ret
+    
+.error:
+    mov si, msg_vesa_err
+    call print_rm
+    
+    ; mark graphics as disabled in GraphicsInfo structure
+    mov word [GRAPHICS_INFO], 0
+    
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop es
+    ret
+
+; print a hex number in EAX
+print_hex:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    
+    mov ecx, 8              ; 8 hex digits (for 32-bit value)
+    mov ebx, 0F0000000h     ; Mask for first digit
+    
+.next_digit:
+    mov edx, eax ; cpy value to EDX
+    and edx, ebx ; mask to get current digit
+    mov esi, ecx ; pos of current digit
+    dec esi
+    shl esi, 2 ; mul by 4 (each hex digit is 4 bits)
+    shr edx, cl ; >> to get the digit value
+    
+    mov ah, 0Eh ; BIOS teletype function
+    cmp dl, 10 ; check if digit or letter
+    jl .digit
+    add dl, 'A' - 10 - '0' ; conv to A-F
+    
+.digit:
+    add dl, '0' ; conv to ASCII
+    mov al, dl ; char to print
+    int 10h  ; call BIOS
+    
+    shr ebx, 4 ; shift mask for the next digits
+    loop .next_digit ; proc repeat for the next digits
+    
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
     ret
 
 load_kernel:
@@ -182,7 +346,6 @@ disk_error:
     call print_rm
     cli
     hlt
-
 
 [BITS 32]
 pm_entry:
@@ -280,16 +443,38 @@ lm_entry:
     mov gs, ax
     mov ss, ax
 
-    mov rsp, 0x90000 + KERNEL_HIGH ; set stack pointer to high address
+    ; create KASLR offset based on build info
+    ; Enhanced KASLR implementation
+    rdtsc                   ; Read timestamp counter into EDX:EAX
+    mov ebx, eax            ; Save original TSC low value
+    xor eax, edx            ; Mix with high bits
+    rol eax, 11             ; Rotate bits
+    xor eax, VERSION        ; Mix in constants
+    xor eax, ebx            ; Mix with original TSC again
+    rol eax, 7              ; Rotate more
+    xor eax, TARGET
+    rol eax, 5
+    xor eax, SIG
+    xor eax, [0x046C]       ; Mix with BIOS time tick count
+    rol eax, 13             ; One more rotation
+    and rax, 0x000FFFF0     ; Preserve more bits (20-bit range), keep 16-byte alignment
+    
+    ; store the offset for the kernel to know about it
+    mov qword [BOOT_INFO + 1538], rax
+    
+    ; set stack with reasonable offset that we know is mapped
+    mov rsp, KERNEL_HIGH + 0x90000
+    add rsp, rax ; add randomization offset
 
     ; yay we reached the long mode
     mov rsi, msg_lm
     call print_lm
 
     ; pass BootInfo pointer to kernel in RDI (first parameter)
-    ; this is required because we need to follow the convention to correctly pass the boot information
-    ; to the kernel
     mov rdi, KERNEL_HIGH + BOOT_INFO
+    
+    ; pass GraphicsInfo pointer to kernel in RSI (second parameter)
+    mov rsi, KERNEL_HIGH + GRAPHICS_INFO
 
     mov rax, KERNEL_HIGH + KERNEL_LOW ; jump to kernel at its virtual high address
     jmp rax
@@ -311,14 +496,59 @@ print_lm:
     pop rax
     ret
 
+; VESA info structures
+mode_info_block:
+    .attributes     dw 0           ; mode attributes
+    .window_a       db 0           ; window A attributes
+    .window_b       db 0           ; window B attributes
+    .granularity    dw 0           ; window granularity
+    .window_size    dw 0           ; window size
+    .window_a_seg   dw 0           ; window A start segment
+    .window_b_seg   dw 0           ; window B start segment
+    .window_func    dd 0           ; ptr to window function
+    .pitch          dw 0           ; bytes per scanline (pitch)
+    
+    ; VBE 1.2+ (below)
+    .width          dw 0           ; width in pixels
+    .height         dw 0           ; height in pixels
+    .w_char         db 0           ; character cell width
+    .h_char         db 0           ; character cell height
+    .planes         db 0           ; number of memory planes
+    .bpp            db 0           ; bits per pixel
+    .banks          db 0           ; number of banks
+    .memory_model   db 0           ; memory model type
+    .bank_size      db 0           ; nank size in KB
+    .image_pages    db 0           ; number of image pages
+    .reserved1      db 1           ; reserved
+    
+    ; direct color fields (for direct/6 and YUV/7 memory models)
+    .red_mask       db 0           ; size of red mask
+    .red_position   db 0           ; bit position of red mask
+    .green_mask     db 0           ; size of green mask
+    .green_position db 0           ; bit position of green mask
+    .blue_mask      db 0           ; size of blue mask
+    .blue_position  db 0           ; bit position of blue mask
+    .reserved_mask  db 0           ; size of reserved mask
+    .reserved_pos   db 0           ; bit position of reserved mask
+    .direct_color   db 0           ; direct color mode info
+    
+    ; VBE 2.0+ (below)
+    .framebuffer    dd 0           ; physical address of linear framebuffer
+    .off_screen_mem dd 0           ; start of off screen memory
+    .off_screen_size dw 0          ; amount of off screen memory in 1K units
+    .reserved2      times 206 db 0 ; remainder of mode info block
+
+; Messages
 msg_stage2:    db 'Stage 2 loaded', 13, 10, 0
 msg_disk_err:  db 'Disk error', 13, 10, 0
 msg_mem_err:   db 'Memory map detection failed', 13, 10, 0
 msg_mem_ok:    db 'Memory map detected, entries: ', 0
+msg_vesa_err:  db 'VESA error', 13, 10, 0
+msg_vesa_ok:   db 'VESA mode set successfully', 13, 10, 0
+msg_framebuffer: db 'Framebuffer address: 0x', 0
 newline:       db 13, 10, 0
 msg_lm:        db 'In long mode', 0
 msg_pm:        db 'In protected mode', 0
-
 
 ; gpt structures
 ; aligning the data to 16 bytes is required
